@@ -17,6 +17,7 @@ const HELPER_BASE = process.env.HELPER_BASE || '../../helpers/';
 const Response = require(HELPER_BASE + 'response');
 
 const Todoist = require('todoist').v8;
+const crypto = require('crypto');
 
 const line = require('@line/bot-sdk');
 const LineUtils = require(HELPER_BASE + 'line-utils');
@@ -109,6 +110,8 @@ app.message(async (event, client) =>{
     var message;
     if( !conf.token ){
       // 新規登録
+      conf.state = sourceId + '_' + Buffer.from(crypto.randomBytes(12)).toString('hex');
+      await writeConfigFile(sourceId, conf);
       message = {
         type: "template",
         altText: "設定",
@@ -119,7 +122,7 @@ app.message(async (event, client) =>{
             {
               type: "uri",
               label: "設定ページ",
-              uri: "https://todoist.com/oauth/authorize?client_id=" + TODOIST_CLIENT_ID + "&scope=data:delete,data:read_write&state=" + sourceId + "&openExternalBrowser=1"
+              uri: "https://todoist.com/oauth/authorize?client_id=" + TODOIST_CLIENT_ID + "&scope=data:read_write&state=" + conf.state + "&openExternalBrowser=1"
             }
           ]
         }
@@ -309,11 +312,13 @@ app.postback(async (event, client) =>{
     var items = todoist.items.get();
     const collaborators = todoist.sharing.collaborators();
     var notes = todoist.notes.get();
+    var labels = todoist.labels.get();
 
     // タスクの検索
     var task = items.find(item => item.id == item_id );
+    console.log(task);
 
-    var message = make_tododetail_message(task, collaborators, notes);
+    var message = make_tododetail_message(task, collaborators, notes, labels);
     return client.replyMessage(event.replyToken, message);
   }else
   if( data[0] == 'todo_complete'){
@@ -334,8 +339,13 @@ exports.handler = async (event, context, callback) => {
 	if( event.path == '/line-todoist-callback' ){
     // トークン取得処理
     var apikey = event.requestContext.apikeyAuth.apikey;
-    var sourceId = body.sourceId;
-  
+    var params = body.state.split('_', 2)
+    var sourceId = params[0];
+
+    var conf = await readConfigFile(sourceId);
+    if( !conf )
+      throw "invalid state";
+
     // トークン取得呼び出し
     var param = {
 			client_id: TODOIST_CLIENT_ID,
@@ -345,11 +355,10 @@ exports.handler = async (event, context, callback) => {
 		var json = await do_post("https://todoist.com/oauth/access_token", param );
 
     // sourceIdのConfigファイル更新
-    var conf = await readConfigFile(sourceId);
-    if( !conf ){
-      conf = {
-        apikey: apikey
-      };
+    if( !conf.apikey ){
+      if( conf.state != body.state )
+        throw "invalid state";
+      conf.apikey = apikey;
     }else
     if( conf.apikey != apikey ){
         throw 'invalid apikey';
@@ -358,7 +367,7 @@ exports.handler = async (event, context, callback) => {
     conf.token = json;
 		await writeConfigFile(sourceId, conf);
 
-		return new Response({});
+		return new Response({ sourceId: sourceId });
   }else
   if( event.path == '/line-todoist-get-config' ){
     // Configファイル取得要求
@@ -448,7 +457,7 @@ function do_post(url, body) {
 }
 
 // タスク詳細表示メッセージの生成
-function make_tododetail_message(todo, collaborators, notes) {
+function make_tododetail_message(todo, collaborators, notes, labels) {
   var message = {
     type: "flex",
     altText: todo.content,
@@ -500,7 +509,7 @@ function make_tododetail_message(todo, collaborators, notes) {
                 flex: 4
               }
             ]
-          },
+          }
         ]
       }
     },
@@ -568,6 +577,35 @@ function make_tododetail_message(todo, collaborators, notes) {
 
       elem.contents.push(param);
     });
+    message.contents.body.contents.push(elem);
+  }
+
+  if(todo.labels && todo.labels.length > 0 ){
+    var label_str = "";
+    for( var i = 0 ; i < todo.labels.length ; i++ ){
+      var label = labels.find(item => item.id == todo.labels[i]);
+      label_str += label.name + " ";
+    }
+
+    var elem = {
+      type: "box",
+      layout: "baseline",
+      spacing: "sm",
+      contents: [
+        {
+          type: "text",
+          text: "ラベル",
+          size: "sm",
+          flex: 1
+        },
+        {
+          type: "text",
+          text: label_str,
+          size: "sm",
+          flex: 4
+        }
+      ]
+    }
     message.contents.body.contents.push(elem);
   }
 
