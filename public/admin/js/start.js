@@ -74,7 +74,7 @@ var vue_options = {
 
         if( searchs.code ){
             // todoist認証後の認可コード
-            var sourceId = searchs.state;
+            var state = searchs.state;
             var code = searchs.code;
             history.replaceState(null, null, '.');
             var apikey = prompt("API Keyを指定してください。");
@@ -84,12 +84,12 @@ var vue_options = {
             // todoistのトークン設定
             var param = {
                 code: code,
-                sourceId: sourceId
+                state: state
             };
             do_post_apikey(base_url + '/line-todoist-callback', param, apikey)
             .then(json =>{
                 this.apikey = apikey;
-                this.sourceId = sourceId;
+                this.sourceId = json.sourceId;
                 Cookies.set("line_apikey", this.apikey, { expires: EXPIRES });
                 Cookies.set("line_sourceId", this.sourceId, { expires: EXPIRES });
 
