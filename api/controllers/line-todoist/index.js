@@ -345,6 +345,8 @@ exports.handler = async (event, context, callback) => {
     var conf = await readConfigFile(sourceId);
     if( !conf )
       throw "invalid state";
+    if( conf.state != body.state )
+      throw "invalid state";
 
     // トークン取得呼び出し
     var param = {
@@ -356,8 +358,6 @@ exports.handler = async (event, context, callback) => {
 
     // sourceIdのConfigファイル更新
     if( !conf.apikey ){
-      if( conf.state != body.state )
-        throw "invalid state";
       conf.apikey = apikey;
     }else
     if( conf.apikey != apikey ){
